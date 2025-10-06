@@ -965,7 +965,7 @@ bool commandReady = false;
 
 // ==================== Değişkenler ====================
 int localServoAngle = 90;
-const int LOCAL_SERVO_HOME_ANGLE = 90; // Basılı tutma için home pozisyonu
+const int LOCAL_SERVO_HOME_ANGLE = 90;
 unsigned long lastPcaUpdate = 0;
 const unsigned long PCA_UPDATE_INTERVAL = 20;
 
@@ -985,7 +985,7 @@ void stopMotor();
 void setLocalServo(int angle);
 void printResetPositions();
 void setupServo(uint8_t index, uint8_t channel, uint16_t startAngle, uint16_t minAngle, uint16_t maxAngle, String name = "");
-void  runServoTest();
+void runServoTest();
 // ==================== Servo Kurulum Fonksiyonu ====================
 void setupServo(uint8_t index, uint8_t channel, uint16_t startAngle, uint16_t minAngle, uint16_t maxAngle, String name) {
   if (index < TOTAL_CHANNELS) {
@@ -1182,7 +1182,7 @@ void handleLocalServoRelease() {
   Serial.printf("🔘 Yerel Servo Bırakıldı: %d° (Home)\n", LOCAL_SERVO_HOME_ANGLE);
 }
 
-// ==================== KOMUT İŞLEME ====================
+// ==================== GELİŞTİRİLMİŞ KOMUT İŞLEME ====================
 void processFlexibleCommand(const char* command) {
   Serial.printf("🔧 İşleniyor: %s\n", command);
   
@@ -1194,108 +1194,113 @@ void processFlexibleCommand(const char* command) {
   }
   strcpy(buffer, command);
   
-  String cmdStr = String(command);
-  cmdStr.toLowerCase();
-  cmdStr.trim();
-  
-  // RESET komutları
-  if (cmdStr == "reset" || cmdStr == "sifirla" || cmdStr == "sıfırla") {
-    resetAllServos();
-    return;
-  }
-  else if (cmdStr == "reset servo" || cmdStr == "servo reset") {
-    resetOnlyServos();
-    return;
-  }
-  
-  // Local servo komutları
-  else if (cmdStr.startsWith("local:")) {
-    int angle = cmdStr.substring(6).toInt();
-    if (angle >= 0 && angle <= 180) {
-      setLocalServo(angle);
-      return;
-    }
-  }
-  
-  // Motor komutları
-  else if (cmdStr == "motor ileri" || cmdStr == "ileri" || cmdStr == "forward") {
-    setMotorForward();
-    return;
-  }
-  else if (cmdStr == "motor geri" || cmdStr == "geri" || cmdStr == "backward") {
-    setMotorBackward();
-    return;
-  }
-  else if (cmdStr == "motor dur" || cmdStr == "dur" || cmdStr == "stop") {
-    stopMotor();
-    return;
-  }
-  
-  // Yerel servo komutları
-  else if (cmdStr == "servo sol" || cmdStr == "sol" || cmdStr == "left") {
-    setLocalServo(0);
-    return;
-  }
-  else if (cmdStr == "servo sag" || cmdStr == "sag" || cmdStr == "right") {
-    setLocalServo(180);
-    return;
-  }
-  else if (cmdStr == "servo orta" || cmdStr == "orta" || cmdStr == "center") {
-    setLocalServo(90);
-    return;
-  }
-  
-  // Sistem komutları
-  else if (cmdStr == "help" || cmdStr == "yardim" || cmdStr == "yardım") {
-    printHelp();
-    return;
-  }
-  else if (cmdStr == "status" || cmdStr == "durum") {
-    printServoStatus();
-    return;
-  }
-  else if (cmdStr == "scan" || cmdStr == "tarama") {
-    scanI2CDevices();
-    return;
-  }
-  else if (cmdStr == "test") {
-    runServoTest();
-    return;
-  }
-  else if (cmdStr == "clear" || cmdStr == "temizle") {
-    clearSerialBuffer();
-    Serial.println("🧹 Buffer temizlendi!");
-    return;
-  }
-  
-  // PCA9685 servo komutları
+  // Tüm komutları boşluklardan böl ve teker teker işle
   char *token = strtok(buffer, " ");
-  int commandCount = 0;
-  int errorCount = 0;
+  bool commandProcessed = false;
   
   while (token != NULL) {
-    int channel, angle;
+    String cmdStr = String(token);
+    cmdStr.toLowerCase();
+    cmdStr.trim();
     
-    if (sscanf(token, "%d,%d", &channel, &angle) == 2) {
-      if (setPcaServoAngleByChannel(channel, angle)) {
-        commandCount++;
+    Serial.printf("🔍 Komut parçası: %s\n", cmdStr.c_str());
+    
+    // RESET komutları
+    if (cmdStr == "reset" || cmdStr == "sifirla" || cmdStr == "sıfırla") {
+      resetAllServos();
+      commandProcessed = true;
+    }
+    else if (cmdStr == "reset servo" || cmdStr == "servo reset") {
+      resetOnlyServos();
+      commandProcessed = true;
+    }
+    
+    // Local servo komutları - "local:120" formatı
+    else if (cmdStr.startsWith("local:")) {
+      int angle = cmdStr.substring(6).toInt();
+      if (angle >= 0 && angle <= 180) {
+        setLocalServo(angle);
+        commandProcessed = true;
       } else {
-        errorCount++;
+        Serial.println("❌ HATA: Local servo için açı 0-180 arası olmalı!");
       }
-    } else {
-      Serial.printf("❌ Hatalı format: %s\n", token);
-      errorCount++;
+    }
+    
+    // Motor komutları
+    else if (cmdStr == "motor ileri" || cmdStr == "ileri" || cmdStr == "forward") {
+      setMotorForward();
+      commandProcessed = true;
+    }
+    else if (cmdStr == "motor geri" || cmdStr == "geri" || cmdStr == "backward") {
+      setMotorBackward();
+      commandProcessed = true;
+    }
+    else if (cmdStr == "motor dur" || cmdStr == "dur" || cmdStr == "stop") {
+      stopMotor();
+      commandProcessed = true;
+    }
+    
+    // Yerel servo komutları
+    else if (cmdStr == "servo sol" || cmdStr == "sol" || cmdStr == "left") {
+      setLocalServo(0);
+      commandProcessed = true;
+    }
+    else if (cmdStr == "servo sag" || cmdStr == "sag" || cmdStr == "right") {
+      setLocalServo(180);
+      commandProcessed = true;
+    }
+    else if (cmdStr == "servo orta" || cmdStr == "orta" || cmdStr == "center") {
+      setLocalServo(90);
+      commandProcessed = true;
+    }
+    
+    // Sayısal servo komutu (servo 90)
+    else if (cmdStr.startsWith("servo ")) {
+      int angle = cmdStr.substring(6).toInt();
+      if (angle >= 0 && angle <= 180) {
+        setLocalServo(angle);
+        commandProcessed = true;
+      }
+    }
+    
+    // Sistem komutları
+    else if (cmdStr == "help" || cmdStr == "yardim" || cmdStr == "yardım") {
+      printHelp();
+      commandProcessed = true;
+    }
+    else if (cmdStr == "status" || cmdStr == "durum") {
+      printServoStatus();
+      commandProcessed = true;
+    }
+    else if (cmdStr == "scan" || cmdStr == "tarama") {
+      scanI2CDevices();
+      commandProcessed = true;
+    }
+    else if (cmdStr == "test") {
+      runServoTest();
+      commandProcessed = true;
+    }
+    else if (cmdStr == "clear" || cmdStr == "temizle") {
+      clearSerialBuffer();
+      Serial.println("🧹 Buffer temizlendi!");
+      commandProcessed = true;
+    }
+    
+    // PCA9685 servo komutları - "kanal,açı" formatı
+    else {
+      int channel, angle;
+      if (sscanf(token, "%d,%d", &channel, &angle) == 2) {
+        if (setPcaServoAngleByChannel(channel, angle)) {
+          commandProcessed = true;
+        }
+      }
     }
     
     token = strtok(NULL, " ");
   }
   
-  if (commandCount > 0 || errorCount > 0) {
-    if (errorCount == 0) {
-      Serial.printf("🎉 Tüm komutlar başarılı! (%d komut)\n", commandCount);
-    } else {
-      Serial.printf("⚠️ %d başarılı, %d hatalı komut\n", commandCount, errorCount);
-    }
+  if (!commandProcessed) {
+    Serial.println("❌ Bilinmeyen komut! 'help' yazarak kullanılabilir komutları görün.");
   }
 }
 
@@ -1332,7 +1337,6 @@ void handleWebClient(WiFiClient &client) {
   String request = client.readStringUntil('\r');
   Serial.println("🌐 Web İsteği: " + request);
 
-  // Yerel servo basılı tutma kontrolü
   if (request.indexOf("GET /servo?press=") != -1) {
     if (request.indexOf("sol") != -1) {
       handleLocalServoPress(0);
@@ -1344,17 +1348,14 @@ void handleWebClient(WiFiClient &client) {
       handleLocalServoPress(90);
     }
   }
-  // Yerel servo bırakma kontrolü
   else if (request.indexOf("GET /servo?release") != -1) {
     handleLocalServoRelease();
   }
-  // Motor kontrolü
   else if (request.indexOf("GET /motor") != -1) {
     if (request.indexOf("ileri") != -1) setMotorForward();
     else if (request.indexOf("geri") != -1) setMotorBackward();
     else if (request.indexOf("dur") != -1) stopMotor();
   }
-  // Reset kontrolü
   else if (request.indexOf("GET /reset") != -1) {
     resetAllServos();
   }
@@ -1446,8 +1447,8 @@ void sendWebPage(WiFiClient &client) {
   // Motor kontrol bölümü
   client.println("<div class='servo-container'>");
   client.println("<h2>🏎️ Motor Kontrol</h2>");
-  client.println("<button class='btn motor' ontouchstart=\"fetch('/motor?ileri')\" ontouchend=\"fetch('/motor?dur')\" onmousedown=\"fetch('/motor?ileri')\" onmouseup=\"fetch('/motor?dur')\">Forward</button><br>");
-  client.println("<button class='btn motor' ontouchstart=\"fetch('/motor?geri')\" ontouchend=\"fetch('/motor?dur')\" onmousedown=\"fetch('/motor?geri')\" onmouseup=\"fetch('/motor?dur')\">Backward</button>");
+  client.println("<button class='btn motor' ontouchstart=\"fetch('/motor?ileri')\" ontouchend=\"fetch('/motor?dur')\" onmousedown=\"fetch('/motor?ileri')\" onmouseup=\"fetch('/motor?dur')\">İLERİ</button><br>");
+  client.println("<button class='btn motor' ontouchstart=\"fetch('/motor?geri')\" ontouchend=\"fetch('/motor?dur')\" onmousedown=\"fetch('/motor?geri')\" onmouseup=\"fetch('/motor?dur')\">GERİ</button>");
   client.println("</div>");
 
   // Reset bölümü
@@ -1524,8 +1525,9 @@ void setup() {
   server.begin();
   
   delay(1000);
-  Serial.println("🤖 BASILI TUTMA SİSTEMİ HAZIR!");
-  printHelp();
+  Serial.println("🤖 ÇOKLU KOMUT SİSTEMİ HAZIR!");
+  Serial.println("💡 Örnek: 'local:100 forward' → Servo 100° ve motor ileri");
+  Serial.println("💡 Örnek: '4,90 6,110 forward' → 2 servo + motor ileri\n");
 }
 
 void loop() {
