@@ -120,7 +120,7 @@ void setupAllServos() {
   setupServo(0, 8, 100, 100, 150, "Kol_Servo_2");
   setupServo(1, 4, 72, 72, 122, "Kol_Servo_1");
   setupServo(2, 6, 126, 68, 126, "Bacak_Servo_1");
-  setupServo(3, 9, 50, 50, 120, "Bacak_Servo_2");
+  setupServo(3, 9, 50, 50, 120, "Boyun_Servo_2");
   setupServo(4, 10, 130, 130, 160, "Baş_Servo");
   setupServo(5, 13, 92, 40, 92, "Kuyruk_Servo");
   setupServo(6, 11, 133, 105, 133, "Göz_Servo");
@@ -259,7 +259,7 @@ void resetOnlyServos() {
   delay(100);
   setPcaServoAngleByChannel(6, 126);
   delay(100);
-  setPcaServoAngleByChannel(9, 50);
+  setPcaServoAngleByChannel(9, 90);
   delay(100);
   setPcaServoAngleByChannel(10, 130);
   delay(100);
