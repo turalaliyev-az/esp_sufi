@@ -1,4 +1,4 @@
- #include <Arduino.h>
+#include <Arduino.h>
 #include <WiFi.h>
 #include <ESP32Servo.h>
 #include <Wire.h>
@@ -70,6 +70,11 @@ const int LOCAL_SERVO_HOME_ANGLE = 90;
 unsigned long lastPcaUpdate = 0;
 const unsigned long PCA_UPDATE_INTERVAL = 20;
 
+// Yeni eklenen değişkenler
+unsigned long lastSerialActivity = 0;
+const unsigned long RESET_TIMEOUT = 3000; // 3 saniye
+bool resetExecuted = false;
+
 // ==================== Ön Fonksiyon Bildirimleri ====================
 void printHelp();
 void printServoStatus();
@@ -87,6 +92,8 @@ void setLocalServo(int angle);
 void printResetPositions();
 void setupServo(uint8_t index, uint8_t channel, uint16_t startAngle, uint16_t minAngle, uint16_t maxAngle, String name = "");
 void runServoTest();
+void autoResetIfNoActivity();
+
 // ==================== Servo Kurulum Fonksiyonu ====================
 void setupServo(uint8_t index, uint8_t channel, uint16_t startAngle, uint16_t minAngle, uint16_t maxAngle, String name) {
   if (index < TOTAL_CHANNELS) {
@@ -120,8 +127,10 @@ void setupAllServos() {
   setupServo(0, 8, 100, 100, 150, "Kol_Servo_2");
   setupServo(1, 4, 72, 72, 122, "Kol_Servo_1");
   setupServo(2, 6, 126, 68, 126, "Bacak_Servo_1");
-  setupServo(3, 9, 50, 50, 120, "Boyun_Servo_2");
+  //setupServo(3, 9, 50, 50, 120, "Boyun_Servo_2");
   setupServo(4, 10, 130, 130, 160, "Baş_Servo");
+  setPcaServoAngleByChannel(9, 90);
+
   setupServo(5, 13, 92, 40, 92, "Kuyruk_Servo");
   setupServo(6, 11, 133, 105, 133, "Göz_Servo");
   setupServo(7, 12, 50, 50, 145, "Ağız_Servo");
@@ -272,6 +281,21 @@ void resetOnlyServos() {
   Serial.printf("✅ %d servo reset pozisyonlarına getirildi\n", 8);
 }
 
+// ==================== OTOMATİK RESET KONTROLÜ ====================
+void autoResetIfNoActivity() {
+  unsigned long currentTime = millis();
+  
+  // Seri haberleşme olmazsa ve timeout süresi dolduysa
+  if (!resetExecuted && (currentTime - lastSerialActivity >= RESET_TIMEOUT)) {
+    Serial.println("⏰ Seri port zaman aşımı - Otomatik resetleniyor...");
+    resetAllServos();
+    resetExecuted = true; // Reset yapıldı olarak işaretle
+    
+    // Zamanı tekrar güncelle ki sürekli reset yapmasın
+    lastSerialActivity = currentTime;
+  }
+}
+
 // ==================== WEB SERVO KONTROL FONKSİYONLARI ====================
 void handleLocalServoPress(int angle) {
   setLocalServo(angle);
@@ -408,6 +432,10 @@ void processFlexibleCommand(const char* command) {
 void checkSerial() {
   while (Serial.available() > 0) {
     char c = Serial.read();
+    
+    // Seri haberleşme aktivitesi olduğunda zamanı güncelle
+    lastSerialActivity = millis();
+    resetExecuted = false; // Reset yapılmadı olarak işaretle
     
     if (c == '\n' || c == '\r') {
       if (bufferIndex > 0) {
@@ -596,6 +624,15 @@ void runServoTest() {
   handleLocalServoRelease();
 }
 
+//--------------- otomatik reset pozisyonlarını yazdırma fonksiyonu ---------------
+void printResetPositions() {
+  Serial.println("\n🔄 Servo Reset Pozisyonları:");
+  
+  if (!Serial) {
+    resetOnlyServos();
+  }
+}
+
 // ==================== SETUP ve LOOP ====================
 void setup() {
   Serial.begin(115200);
@@ -625,10 +662,14 @@ void setup() {
 
   server.begin();
   
+  // Başlangıç zamanını ayarla
+  lastSerialActivity = millis();
+  
   delay(1000);
   Serial.println("🤖 ÇOKLU KOMUT SİSTEMİ HAZIR!");
   Serial.println("💡 Örnek: 'local:100 forward' → Servo 100° ve motor ileri");
-  Serial.println("💡 Örnek: '4,90 6,110 forward' → 2 servo + motor ileri\n");
+  Serial.println("💡 Örnek: '4,90 6,110 forward' → 2 servo + motor ileri");
+  Serial.println("⏰ 3 saniye seri port aktivitesi olmazsa otomatik reset yapılacak\n");
 }
 
 void loop() {
@@ -641,4 +682,7 @@ void loop() {
   checkSerial();
   processSerialCommand();
   updatePcaServos();
+  autoResetIfNoActivity(); // Otomatik reset kontrolü
+  
+  delay(10); // Küçük bir gecikme
 }
