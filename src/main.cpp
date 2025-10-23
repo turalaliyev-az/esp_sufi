@@ -40,10 +40,20 @@ UltrasonicSensor sensors[4] = {
 
 // ==================== Otonom Mod Ayarları ====================
 bool autonomousMode = false;
-const float OBSTACLE_DISTANCE = 80.0; // 30 cm'de engel algıla
-const float CRITICAL_DISTANCE = 50.0; // 15 cm'de acil dur
+const float OBSTACLE_DISTANCE = 80.0; // 80 cm'de engel algıla (düzeltilmiş)
+const float CRITICAL_DISTANCE = 50.0; // 50 cm'de acil dur (düzeltilmiş)
 unsigned long lastSensorRead = 0;
 const unsigned long SENSOR_READ_INTERVAL = 100; // 100ms'de bir sensör oku
+
+// ==================== PID Ayarları ====================
+double Kp = 1.0;  // Proportional gain
+double Ki = 0.1;  // Integral gain
+double Kd = 0.5;  // Derivative gain
+double setpoint = 0.0;  // Ideal fark (sol - sağ mesafe farkı 0)
+double previous_error = 0.0;
+double integral = 0.0;
+unsigned long last_pid_time = 0;
+const double MAX_INTEGRAL = 50.0;  // Integral windup önleme sınırı
 
 // ==================== L298N Motor Pinleri ====================
 #define IN1 27
@@ -136,6 +146,7 @@ void updateAllSensors();
 void autonomousMovement();
 void setAutonomousMode(bool enabled);
 void handleWebClient(WiFiClient &client);
+void pidSteering();
 
 // ==================== OTONOM MOD FONKSİYONLARI ====================
 
@@ -145,6 +156,10 @@ void setAutonomousMode(bool enabled) {
     if (enabled) {
       Serial.println("🚀 OTONOM MOD AKTİF - Robot kendi kendine hareket edecek");
       stopMotor(); // Güvenli başlangıç
+      // PID değişkenlerini sıfırla
+      previous_error = 0.0;
+      integral = 0.0;
+      last_pid_time = millis();
     } else {
       Serial.println("🔴 OTONOM MOD PASİF - Manuel kontrol aktif");
       stopMotor();
@@ -156,6 +171,39 @@ void updateAllSensors() {
   for (int i = 0; i < 4; i++) {
     sensors[i].distance = readUltrasonicDistance(sensors[i].trigPin, sensors[i].echoPin);
   }
+}
+
+void pidSteering() {
+  double frontLeft = sensors[0].distance;
+  double frontRight = sensors[1].distance;
+
+  // Eğer mesafeler max ise, farkı 0 olarak kabul et (açık alan)
+  if (frontLeft >= MAX_DISTANCE && frontRight >= MAX_DISTANCE) {
+    setLocalServo(90); // Düz git
+    return;
+  }
+
+  double error = frontRight - frontLeft;  // Sağ - Sol fark
+  unsigned long now = millis();
+  double timeChange = (double)(now - last_pid_time) / 1000.0;
+
+  if (timeChange == 0) return;  // Zaman değişimi yoksa çık
+
+  integral += error * timeChange;
+  integral = constrain(integral, -MAX_INTEGRAL, MAX_INTEGRAL);  // Windup önleme
+
+  double derivative = (error - previous_error) / timeChange;
+
+  double output = Kp * error + Ki * integral + Kd * derivative;
+
+  previous_error = error;
+  last_pid_time = now;
+
+  int servoAngle = 90 + (int)output;
+  servoAngle = constrain(servoAngle, 0, 180);
+
+  setLocalServo(servoAngle);
+  Serial.printf("📐 PID Steering: Error=%.2f, Output=%.2f, Angle=%d°\n", error, output, servoAngle);
 }
 
 void autonomousMovement() {
@@ -173,11 +221,15 @@ void autonomousMovement() {
     stopMotor();
     delay(500);
     
-    // Geri gitmeyi dene
-    setMotorBackward();
-    delay(300);
-    stopMotor();
-    delay(200);
+    // Geri gitmeyi dene (arka sensörleri kontrol et)
+    if (back > CRITICAL_DISTANCE && side > CRITICAL_DISTANCE) {
+      setMotorBackward();
+      delay(300);
+      stopMotor();
+      delay(200);
+    } else {
+      Serial.println("⚠️ ARKA DA ENGELLİ - DURUYORUM");
+    }
     
     // Servo ile etrafa bak
     setLocalServo(0);
@@ -217,8 +269,9 @@ void autonomousMovement() {
     stopMotor();
     delay(200);
   } else {
-    // Engel yok, düz git
-    Serial.println("✅ YOL AÇIK - İLERİ GİDİYORUM");
+    // Engel yok, PID ile düz git
+    Serial.println("✅ YOL AÇIK - PID İLE İLERİ GİDİYORUM");
+    pidSteering();
     setMotorForward();
   }
 }
@@ -864,7 +917,7 @@ void printHelp() {
   
   Serial.println("⏰ OTOMATİK GÜVENLİK:");
   Serial.println("  3 saniye seri port aktivitesi olmazsa otomatik reset");
-  Serial.println("  30 cm'de engel algılama, 15 cm'de acil dur");
+  Serial.println("  80 cm'de engel algılama, 50 cm'de acil dur");
 }
 
 void printServoStatus() {
