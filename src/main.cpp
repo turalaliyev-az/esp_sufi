@@ -17,6 +17,13 @@ const char* password = "12345678";
 #define ECHO_PIN_3 23
 #define TRIG_PIN_4 15  // 4. sensör için yeni pinler
 #define ECHO_PIN_4 12
+#define ECHO_PIN_5 34
+#define TRIG_PIN_5 16
+#define ECHO_PIN_6 35
+#define TRIG_PIN_6 17
+#define ECHO_PIN_7 25
+#define TRIG_PIN_7 32
+
 
 //------- max distance -------
 #define MAX_DISTANCE 200
@@ -31,11 +38,14 @@ struct UltrasonicSensor {
   String name;
 };
 
-UltrasonicSensor sensors[4] = {
+UltrasonicSensor sensors[7] = {
   {TRIG_PIN, ECHO_PIN, 0, "Ön Sol"},
   {TRIG_PIN_2, ECHO_PIN_2, 0, "Ön Sağ"},
   {TRIG_PIN_3, ECHO_PIN_3, 0, "Arka Sol"},
-  {TRIG_PIN_4, ECHO_PIN_4, 0, "Arka Sağ"}
+  {TRIG_PIN_4, ECHO_PIN_4, 0, "Arka Sağ"},
+  {TRIG_PIN_5, ECHO_PIN_5, 0, "Sag Orta"},
+  {TRIG_PIN_6, ECHO_PIN_6, 0, "Sol Orta"},
+  {TRIG_PIN_7, ECHO_PIN_7, 0, "Sol Merkez"}
 };
 
 // ==================== Otonom Mod Ayarları ====================
@@ -43,11 +53,11 @@ bool autonomousMode = false;
 const float OBSTACLE_DISTANCE = 80.0; // 80 cm'de engel algıla (düzeltilmiş)
 const float CRITICAL_DISTANCE = 50.0; // 50 cm'de acil dur (düzeltilmiş)
 unsigned long lastSensorRead = 0;
-const unsigned long SENSOR_READ_INTERVAL = 100; // 100ms'de bir sensör oku
+const unsigned long SENSOR_READ_INTERVAL = 50; // 100ms'de bir sensör oku
 
 // ==================== PID Ayarları ====================
-double Kp = 1.0;  // Proportional gain
-double Ki = 0.1;  // Integral gain
+double Kp = 1.9;  // Proportional gain
+double Ki = 0.3;  // Integral gain
 double Kd = 0.5;  // Derivative gain
 double setpoint = 0.0;  // Ideal fark (sol - sağ mesafe farkı 0)
 double previous_error = 0.0;
@@ -115,7 +125,7 @@ bool commandReady = false;
 int localServoAngle = 90;
 const int LOCAL_SERVO_HOME_ANGLE = 90;
 unsigned long lastPcaUpdate = 0;
-const unsigned long PCA_UPDATE_INTERVAL = 20;
+const unsigned long PCA_UPDATE_INTERVAL = 5; // Servo hızını daha da artırmak için 20ms -> 5ms
 
 // Yeni eklenen değişkenler
 unsigned long lastSerialActivity = 0;
@@ -168,7 +178,7 @@ void setAutonomousMode(bool enabled) {
 }
 
 void updateAllSensors() {
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 7; i++) {
     sensors[i].distance = readUltrasonicDistance(sensors[i].trigPin, sensors[i].echoPin);
   }
 }
@@ -176,6 +186,8 @@ void updateAllSensors() {
 void pidSteering() {
   double frontLeft = sensors[0].distance;
   double frontRight = sensors[1].distance;
+  double sideLeft = sensors[5].distance;   // Sol yan sensör
+  double sideRight = sensors[4].distance;  // Sağ yan sensör
 
   // Eğer mesafeler max ise, farkı 0 olarak kabul et (açık alan)
   if (frontLeft >= MAX_DISTANCE && frontRight >= MAX_DISTANCE) {
@@ -183,7 +195,9 @@ void pidSteering() {
     return;
   }
 
-  double error = frontRight - frontLeft;  // Sağ - Sol fark
+  // Labirent için yan duvarları da dikkate al
+  double error = (frontRight - frontLeft) + 0.3 * (sideRight - sideLeft);  // Ön + yan fark
+
   unsigned long now = millis();
   double timeChange = (double)(now - last_pid_time) / 1000.0;
 
@@ -200,37 +214,135 @@ void pidSteering() {
   last_pid_time = now;
 
   int servoAngle = 90 + (int)output;
-  servoAngle = constrain(servoAngle, 0, 180);
+  servoAngle = constrain(servoAngle, 30, 150);  // Labirent için daha dar açı aralığı
 
   setLocalServo(servoAngle);
   Serial.printf("📐 PID Steering: Error=%.2f, Output=%.2f, Angle=%d°\n", error, output, servoAngle);
 }
 
+void scanForBestDirection() {
+  Serial.println("🔍 LABİRENT YÖN ARAMA BAŞLIYOR...");
+  stopMotor();
+  delay(300);
+
+  // Önce sola dönmeyi dene
+  Serial.println("↩️ SOLA DÖNÜYORUM...");
+  setLocalServo(0);  // Sola bak
+  delay(200);
+
+  // Sola dön
+  setMotorForward();
+  unsigned long turnStart = millis();
+  while (millis() - turnStart < 800) {  // 0.8 saniye sola dön
+    updateAllSensors();
+    if (sensors[0].distance > OBSTACLE_DISTANCE && sensors[1].distance > OBSTACLE_DISTANCE) {
+      // Sol taraf açık!
+      Serial.println("✅ SOL TARAF AÇIK!");
+      stopMotor();
+      delay(200);
+      setLocalServo(90);  // Düz bak
+      delay(200);
+      setMotorForward();
+      delay(800);  // Kısa süre ilerle
+      stopMotor();
+      return;
+    }
+  }
+  stopMotor();
+  delay(300);
+
+  // Sol taraf kapalı, sağa dönmeyi dene
+  Serial.println("↪️ SOL KAPALI, SAĞA DÖNÜYORUM...");
+  setLocalServo(180);  // Sağa bak
+  delay(200);
+
+  // Önce sola dönmeyi telafi etmek için sağa daha fazla dön
+  setMotorForward();
+  turnStart = millis();
+  while (millis() - turnStart < 1200) {  // 1.2 saniye sağa dön (sol dönüşü telafi)
+    updateAllSensors();
+    if (sensors[0].distance > OBSTACLE_DISTANCE && sensors[1].distance > OBSTACLE_DISTANCE) {
+      // Sağ taraf açık!
+      Serial.println("✅ SAĞ TARAF AÇIK!");
+      stopMotor();
+      delay(200);
+      setLocalServo(90);  // Düz bak
+      delay(200);
+      setMotorForward();
+      delay(800);  // Kısa süre ilerle
+      stopMotor();
+      return;
+    }
+  }
+  stopMotor();
+  delay(300);
+
+  // Her iki taraf da kapalı - geri git
+  Serial.println("❌ İKİ TARAF DA KAPALI - GERİ GİDİYORUM...");
+  setLocalServo(90);  // Düz bak
+  delay(200);
+
+  // Geri git
+  setMotorBackward();
+  delay(1000);  // 1 saniye geri git
+  stopMotor();
+  delay(300);
+
+  // Tekrar sola dönmeyi dene (farklı açıdan)
+  Serial.println("🔄 TEKRAR SOLA DÖNÜYORUM...");
+  setLocalServo(0);
+  delay(200);
+  setMotorForward();
+  delay(600);  // Daha kısa dönüş
+  stopMotor();
+  delay(200);
+
+  // Son kontrol
+  updateAllSensors();
+  if (sensors[0].distance > OBSTACLE_DISTANCE || sensors[1].distance > OBSTACLE_DISTANCE) {
+    Serial.println("✅ YENİ POZİSYONDA YOL BULUNDU!");
+    setLocalServo(90);
+    delay(200);
+    setMotorForward();
+    delay(600);
+    stopMotor();
+  } else {
+    Serial.println("⚠️ ÇIKIŞ YOLU BULUNAMADI - DURUYORUM");
+  }
+}
+
 void autonomousMovement() {
   updateAllSensors();
-  
+
   // Mesafeleri kontrol et
   float frontLeft = sensors[0].distance;
   float frontRight = sensors[1].distance;
-  float back = sensors[2].distance;
-  float side = sensors[3].distance;
-  
+  float backLeft = sensors[2].distance;
+  float backRight = sensors[3].distance;
+  float sideRight = sensors[4].distance;
+  float sideLeft = sensors[5].distance;
+  float centerLeft = sensors[6].distance;
+
   // Kritik mesafe kontrolü - acil dur
   if (frontLeft < CRITICAL_DISTANCE || frontRight < CRITICAL_DISTANCE) {
     Serial.println("🚨 KRİTİK ENGELE - ACİL DUR!");
     stopMotor();
     delay(500);
-    
-    // Geri gitmeyi dene (arka sensörleri kontrol et)
-    if (back > CRITICAL_DISTANCE && side > CRITICAL_DISTANCE) {
+
+    // Arka sensörleri kontrol et
+    if (backLeft > CRITICAL_DISTANCE && backRight > CRITICAL_DISTANCE) {
+      Serial.println("🔙 GERİ GİDİYORUM");
       setMotorBackward();
-      delay(300);
+      delay(500);
       stopMotor();
-      delay(200);
+      delay(300);
     } else {
-      Serial.println("⚠️ ARKA DA ENGELLİ - DURUYORUM");
+      Serial.println("⚠️ ARKA DA ENGELLİ - TAM DURUŞ");
+      // Tüm yönler engelli, tarama yap
+      scanForBestDirection();
+      return;
     }
-    
+
     // Servo ile etrafa bak
     setLocalServo(0);
     delay(300);
@@ -238,40 +350,31 @@ void autonomousMovement() {
     delay(300);
     setLocalServo(90);
     delay(300);
-    
+
     return;
   }
-  
-  // Engel algılama
+
+  // Engel algılama - labirent duvarları için
   if (frontLeft < OBSTACLE_DISTANCE || frontRight < OBSTACLE_DISTANCE) {
-    Serial.println("⚠️ ENGEL ALGILANDI - YÖN DEĞİŞTİRİYORUM");
+    Serial.println("⚠️ DUVAR ALGILANDI - YÖN BULUYORUM");
     stopMotor();
     delay(200);
-    
-    // Hangi tarafta daha fazla boşluk var kontrol et
-    if (frontLeft > frontRight) {
-      // Sol taraf daha açık
-      Serial.println("↩️ SOLA DÖNÜYORUM");
-      setLocalServo(0); // Sola bak
-      delay(300);
-      setMotorForward();
-      delay(400);
-    } else {
-      // Sağ taraf daha açık
-      Serial.println("↪️ SAĞA DÖNÜYORUM");
-      setLocalServo(180); // Sağa bak
-      delay(300);
-      setMotorForward();
-      delay(400);
-    }
-    
-    setLocalServo(90); // Düz bak
-    stopMotor();
-    delay(200);
+
+    // Tarama yaparak en iyi yönü bul
+    scanForBestDirection();
   } else {
-    // Engel yok, PID ile düz git
+    // Engel yok, duvarlar uzakta - PID ile düz git
     Serial.println("✅ YOL AÇIK - PID İLE İLERİ GİDİYORUM");
-    pidSteering();
+
+    // Labirent için PID'yi modifiye et - duvarlar yakınsa daha hassas
+    if (sideLeft < 100 || sideRight < 100) {
+      // Duvarlar yakın, PID'yi daha yumuşak kullan
+      pidSteering();
+    } else {
+      // Açık alan, normal PID
+      pidSteering();
+    }
+
     setMotorForward();
   }
 }
@@ -320,15 +423,21 @@ void updatePcaServos() {
   unsigned long currentTime = millis();
   if (currentTime - lastPcaUpdate >= PCA_UPDATE_INTERVAL) {
     lastPcaUpdate = currentTime;
-    
+
+    // Servo hareket hızını artırmak için adım boyutunu artırıyoruz
+    const int STEP_SIZE = 10; // Her döngüde 10 derece hareket (önceki 1'den çok daha hızlı)
     for (uint8_t i = 0; i < TOTAL_CHANNELS; i++) {
       if (availableServos[i].currentAngle != availableServos[i].targetAngle) {
-        if (availableServos[i].currentAngle < availableServos[i].targetAngle) {
-          availableServos[i].currentAngle++;
-        } else {
-          availableServos[i].currentAngle--;
+        int delta = availableServos[i].targetAngle - availableServos[i].currentAngle;
+        int step = (delta > 0) ? min(STEP_SIZE, delta) : max(-STEP_SIZE, delta);
+        availableServos[i].currentAngle += step;
+
+        // Hedefe ulaştığımızda tam olarak ayarla
+        if ((step > 0 && availableServos[i].currentAngle > availableServos[i].targetAngle) ||
+            (step < 0 && availableServos[i].currentAngle < availableServos[i].targetAngle)) {
+          availableServos[i].currentAngle = availableServos[i].targetAngle;
         }
-        
+
         availableServos[i].currentAngle = constrain(availableServos[i].currentAngle,
                                                    availableServos[i].minAngle,
                                                    availableServos[i].maxAngle);
@@ -431,12 +540,12 @@ void setLocalServo(int angle) {
 
 // ==================== ULTRASONİK SENSÖR FONKSİYONLARI ====================
 void setupUltrasonicSensors() {
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 7; i++) {
     pinMode(sensors[i].trigPin, OUTPUT);
     pinMode(sensors[i].echoPin, INPUT);
   }
-  Serial.println("✅ 4 Ultrasonik Sensör Başlatıldı");
-} 
+  Serial.println("✅ 7 Ultrasonik Sensör Başlatıldı");
+}
 
 float readUltrasonicDistance(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
@@ -546,7 +655,7 @@ void processFlexibleCommand(const char* command) {
     else if (cmdStr == "sensor" || cmdStr == "sensors" || cmdStr == "mesafe") {
       updateAllSensors();
       Serial.println("\n📊 SENSÖR MESAFELERİ:");
-      for (int i = 0; i < 4; i++) {
+      for (int i = 0; i < 7; i++) {
         Serial.printf("  %s: %.1f cm\n", sensors[i].name.c_str(), sensors[i].distance);
       }
       commandProcessed = true;
@@ -733,9 +842,9 @@ void handleWebClient(WiFiClient &client) {
     client.println("Connection: close");
     client.println();
     client.print("{\"sensors\":[");
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 7; i++) {
       client.printf("{\"name\":\"%s\",\"distance\":%.1f}", sensors[i].name.c_str(), sensors[i].distance);
-      if (i < 3) client.print(",");
+      if (i < 6) client.print(",");
     }
     client.print("],\"autonomousMode\":");
     client.print(autonomousMode ? "true" : "false");
@@ -892,7 +1001,8 @@ void sendWebPage(WiFiClient &client) {
   client.println("• Otonom Mod: Robot engellerden kaçarak kendi hareket eder<br>");
   client.println("• Yerel Servo: Butonlara basılı tutun → servo hareket eder<br>");
   client.println("• Motor: Basılı tutun → motor çalışır, bırakın → motor durur<br>");
-  client.println("• Sensörler: 4 ultrasonik sensör ile mesafe ölçümü<br>");
+  client.println("• Sensörler: 7 ultrasonik sensör ile mesafe ölçümü<br>");
+  client.println("• Labirent Modu: Servo taraması ile yön bulma<br>");
   client.println("• Reset: Tüm sistem veya sadece servoları sıfırlar");
   client.println("</div>");
 
@@ -917,16 +1027,17 @@ void printHelp() {
   
   Serial.println("⏰ OTOMATİK GÜVENLİK:");
   Serial.println("  3 saniye seri port aktivitesi olmazsa otomatik reset");
-  Serial.println("  80 cm'de engel algılama, 50 cm'de acil dur");
+  Serial.println("  80 cm'de duvar algılama, 50 cm'de acil dur");
+  Serial.println("  Labirent modu: Servo ile tarama yaparak yön bulma");
 }
 
 void printServoStatus() {
   Serial.printf("📊 Yerel Servo: %d° (Home: %d°)\n", localServoAngle, LOCAL_SERVO_HOME_ANGLE);
   Serial.printf("📡 Otonom Mod: %s\n", autonomousMode ? "AKTİF" : "PASİF");
-  
+
   updateAllSensors();
   Serial.println("📊 Sensör Mesafeleri:");
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 7; i++) {
     Serial.printf("  %s: %.1f cm\n", sensors[i].name.c_str(), sensors[i].distance);
   }
 }
@@ -990,9 +1101,9 @@ void setup() {
   
   delay(1000);
   Serial.println("🤖 OTONOM ROBOT KONTROL SİSTEMİ HAZIR!");
-  Serial.println("🚀 Otonom mod: 'otonom' komutu ile başlat");
+  Serial.println("🚀 Otonom mod: 'otonom' komutu ile başlat (Labirent modu aktif)");
   Serial.println("🔧 Manuel mod: 'manuel' komutu ile geç");
-  Serial.println("📊 Sensörler: 'sensor' komutu ile görüntüle");
+  Serial.println("📊 Sensörler: 'sensor' komutu ile görüntüle (7 sensör)");
   Serial.println("⏰ 3 saniye seri port aktivitesi olmazsa otomatik reset\n");
 }
 
