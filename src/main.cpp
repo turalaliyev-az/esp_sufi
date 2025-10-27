@@ -93,12 +93,13 @@ struct PcaServo {
   String name;
 };
 
+
 PcaServo availableServos[16] = {
   {8, 100, 100, 100, 100, 150, "Kol_Servo_2"},
   {4, 72, 72, 72, 72, 122, "Kol_Servo_1"},
   {6, 126, 126, 126, 68, 126, "Bacak_Servo_1"},
-  {9, 50, 50, 50, 50, 120, "Bacak_Servo_2"},
-  {10, 130, 130, 130, 130, 160, "Baş_Servo"},
+  {9, 90, 90, 90, 50, 120, "Bacak_Servo_2"},
+  {10, 145, 145, 145, 130, 160, "Baş_Servo"}, // MERKEZ:145°, Min:130°, Max:160°
   {13, 92, 92, 92, 40, 92, "Kuyruk_Servo"},
   {11, 133, 133, 133, 105, 133, "Göz_Servo"},
   {12, 50, 50, 50, 50, 145, "Ağız_Servo"},
@@ -409,15 +410,51 @@ void writePcaServo(uint8_t channel, uint16_t angle) {
 }
 
 void setupAllServos() {
-  setupServo(0, 8, 100, 100, 150, "Kol_Servo_2");
-  setupServo(1, 4, 72, 72, 122, "Kol_Servo_1");
-  setupServo(2, 6, 126, 68, 126, "Bacak_Servo_1");
-  setupServo(4, 10, 130, 130, 160, "Baş_Servo");
-  setPcaServoAngleByChannel(9, 90);
-  setupServo(5, 13, 92, 40, 92, "Kuyruk_Servo");
-  setupServo(6, 11, 133, 105, 133, "Göz_Servo");
-  setupServo(7, 12, 50, 50, 145, "Ağız_Servo");
+  Serial.println("🔧 Servolar başlatılıyor...");
+  
+  // Tüm servoları belirttiğiniz açılarda başlat
+  // ÖNEMLİ: Baş_Servo'yu 145°'de başlat
+  setPcaServoAngleByChannel(10, 145);  // Baş_Servo - MERKEZ: 145°
+  delay(200); // Daha uzun bekleme
+  
+  setPcaServoAngleByChannel(8, 100);   // Kol_Servo_2
+  delay(50);
+  setPcaServoAngleByChannel(4, 72);    // Kol_Servo_1
+  delay(50);
+  setPcaServoAngleByChannel(6, 126);   // Bacak_Servo_1
+  delay(50);
+  setPcaServoAngleByChannel(9, 90);    // Bacak_Servo_2
+  delay(50);
+  setPcaServoAngleByChannel(13, 92);   // Kuyruk_Servo
+  delay(50);
+  setPcaServoAngleByChannel(11, 133);  // Göz_Servo
+  delay(50);
+  setPcaServoAngleByChannel(12, 50);   // Ağız_Servo
+  
+  // availableServos dizisini GÜNCELLE - Baş_Servo: 145°
+  availableServos[0].currentAngle = 100;
+  availableServos[0].targetAngle = 100;
+  availableServos[1].currentAngle = 72;
+  availableServos[1].targetAngle = 72;
+  availableServos[2].currentAngle = 126;
+  availableServos[2].targetAngle = 126;
+  availableServos[3].currentAngle = 90;
+  availableServos[3].targetAngle = 90;
+  availableServos[4].currentAngle = 145;  // 145° MERKEZ
+  availableServos[4].targetAngle = 145;   // 145° MERKEZ
+  availableServos[5].currentAngle = 92;
+  availableServos[5].targetAngle = 92;
+  availableServos[6].currentAngle = 133;
+  availableServos[6].targetAngle = 133;
+  availableServos[7].currentAngle = 50;
+  availableServos[7].targetAngle = 50;
+  
+  Serial.println("✅ Servolar başlatıldı");
+  Serial.println("📊 Baş_Servo: 145° (MERKEZ)");
 }
+
+
+
 
 void updatePcaServos() {
   unsigned long currentTime = millis();
@@ -459,28 +496,33 @@ void clearSerialBuffer() {
 bool setPcaServoAngleByChannel(uint8_t channel, int angle) {
   for (int i = 0; i < TOTAL_CHANNELS; i++) {
     if (availableServos[i].channel == channel) {
-      if (angle < availableServos[i].minAngle) {
-        Serial.printf("❌ HATA: Kanal %d için minimum açı %d°! Girilen: %d°\n", 
-                      channel, availableServos[i].minAngle, angle);
-        return false;
-      }
+      Serial.printf("🔧 Kanal %d (%s): %d° ayarlanıyor...\n", 
+                   channel, availableServos[i].name.c_str(), angle);
       
+      // Açı sınır kontrolü
+      if (angle < availableServos[i].minAngle) {
+        Serial.printf("⚠️  Kanal %d: %d° min sınırdan (%d) küçük, %d° ayarlandı\n", 
+                     channel, angle, availableServos[i].minAngle, availableServos[i].minAngle);
+        angle = availableServos[i].minAngle;
+      }
       if (angle > availableServos[i].maxAngle) {
-        Serial.printf("❌ HATA: Kanal %d için maksimum açı %d°! Girilen: %d°\n", 
-                      channel, availableServos[i].maxAngle, angle);
-        return false;
+        Serial.printf("⚠️  Kanal %d: %d° max sınırdan (%d) büyük, %d° ayarlandı\n", 
+                     channel, angle, availableServos[i].maxAngle, availableServos[i].maxAngle);
+        angle = availableServos[i].maxAngle;
       }
       
       availableServos[i].targetAngle = angle;
-      Serial.printf("✅ Kanal %d -> %d° (%s)\n", channel, angle, availableServos[i].name.c_str());
+      writePcaServo(channel, angle);
+      availableServos[i].currentAngle = angle;
+      
+      Serial.printf("✅ Kanal %d: %d° ayarlandı (Min:%d, Max:%d)\n", 
+                   channel, angle, availableServos[i].minAngle, availableServos[i].maxAngle);
       return true;
     }
   }
-  
-  Serial.printf("❌ HATA: Kanal %d bulunamadı!\n", channel);
+  Serial.printf("❌ Kanal %d bulunamadı!\n", channel);
   return false;
 }
-
 // ==================== I2C Scanner ====================
 void scanI2CDevices() {
   Serial.println("\n🔍 I2C Taraması Başlıyor...");
@@ -575,25 +617,38 @@ void resetAllServos() {
 }
 
 void resetOnlyServos() {
-  Serial.println("⚙️ Tüm servolar reset pozisyonlarına getiriliyor...");
+  Serial.println("🔧 Servolar resetleniyor...");
   
-  setPcaServoAngleByChannel(8, 100);
-  delay(100);
-  setPcaServoAngleByChannel(4, 72);
-  delay(100);
-  setPcaServoAngleByChannel(6, 126);
-  delay(100);
-  setPcaServoAngleByChannel(9, 90);
-  delay(100);
-  setPcaServoAngleByChannel(10, 130);
-  delay(100);
-  setPcaServoAngleByChannel(13, 92);
-  delay(100);
-  setPcaServoAngleByChannel(11, 133);
-  delay(100);
-  setPcaServoAngleByChannel(12, 50);
+  // ÖNEMLİ: Baş_Servo'yu 145°'ye resetle
+  setPcaServoAngleByChannel(10, 145);  // Baş_Servo - MERKEZ: 145°
+  delay(200); // Daha uzun bekleme
   
-  Serial.printf("✅ %d servo reset pozisyonlarına getirildi\n", 8);
+  setPcaServoAngleByChannel(8, 100);   // Kol_Servo_2
+  delay(50);
+  setPcaServoAngleByChannel(4, 72);    // Kol_Servo_1
+  delay(50);
+  setPcaServoAngleByChannel(6, 126);   // Bacak_Servo_1
+  delay(50);
+  setPcaServoAngleByChannel(9, 90);    // Bacak_Servo_2
+  delay(50);
+  setPcaServoAngleByChannel(13, 92);   // Kuyruk_Servo
+  delay(50);
+  setPcaServoAngleByChannel(11, 133);  // Göz_Servo
+  delay(50);
+  setPcaServoAngleByChannel(12, 50);   // Ağız_Servo
+  
+  // availableServos dizisini GÜNCELLE - Baş_Servo: 145°
+  availableServos[0].targetAngle = 100;
+  availableServos[1].targetAngle = 72;
+  availableServos[2].targetAngle = 126;
+  availableServos[3].targetAngle = 90;
+  availableServos[4].targetAngle = 145;  // 145° MERKEZ
+  availableServos[5].targetAngle = 92;
+  availableServos[6].targetAngle = 133;
+  availableServos[7].targetAngle = 50;
+  
+  Serial.println("✅ Servolar resetlendi");
+  Serial.println("📊 Baş_Servo: 145° (MERKEZ)");
 }
 
 // ==================== OTOMATİK RESET KONTROLÜ ====================
