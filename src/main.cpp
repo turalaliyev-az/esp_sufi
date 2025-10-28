@@ -99,7 +99,7 @@ PcaServo availableServos[16] = {
   {4, 72, 72, 72, 72, 122, "Kol_Servo_1"},
   {6, 126, 126, 126, 68, 126, "Bacak_Servo_1"},
   {9, 90, 90, 90, 50, 120, "Bacak_Servo_2"},
-  {10, 145, 145, 145, 130, 160, "Baş_Servo"}, // MERKEZ:145°, Min:130°, Max:160°
+  {10, 160, 160, 160, 130, 180, "Baş_Servo"}, // MERKEZ:145°, Min:130°, Max:160°
   {13, 92, 92, 92, 40, 92, "Kuyruk_Servo"},
   {11, 133, 133, 133, 105, 133, "Göz_Servo"},
   {12, 50, 50, 50, 50, 145, "Ağız_Servo"},
@@ -440,8 +440,8 @@ void setupAllServos() {
   availableServos[2].targetAngle = 126;
   availableServos[3].currentAngle = 90;
   availableServos[3].targetAngle = 90;
-  availableServos[4].currentAngle = 145;  // 145° MERKEZ
-  availableServos[4].targetAngle = 145;   // 145° MERKEZ
+  availableServos[4].currentAngle = 160;  // 145° MERKEZ
+  availableServos[4].targetAngle = 160;   // 145° MERKEZ
   availableServos[5].currentAngle = 92;
   availableServos[5].targetAngle = 92;
   availableServos[6].currentAngle = 133;
@@ -642,7 +642,7 @@ void resetOnlyServos() {
   availableServos[1].targetAngle = 72;
   availableServos[2].targetAngle = 126;
   availableServos[3].targetAngle = 90;
-  availableServos[4].targetAngle = 145;  // 145° MERKEZ
+  availableServos[4].targetAngle = 160;  // 145° MERKEZ
   availableServos[5].targetAngle = 92;
   availableServos[6].targetAngle = 133;
   availableServos[7].targetAngle = 50;
