@@ -133,6 +133,9 @@ unsigned long lastSerialActivity = 0;
 const unsigned long RESET_TIMEOUT = 3000; // 3 saniye
 bool resetExecuted = false;
 
+// ==================== YENİ DEĞİŞKENLER ====================
+bool headNeckResetEnabled = true; // 9 ve 10 nolu kanallardaki servolar reset fonksiyonunda aktif mi?
+
 // ==================== Ön Fonksiyon Bildirimleri ====================
 void printHelp();
 void printServoStatus();
@@ -158,6 +161,17 @@ void autonomousMovement();
 void setAutonomousMode(bool enabled);
 void handleWebClient(WiFiClient &client);
 void pidSteering();
+void setHeadNeckReset(bool enabled); // Yeni fonksiyon bildirimi
+
+// ==================== YENİ FONKSİYONLAR ====================
+void setHeadNeckReset(bool enabled) {
+  headNeckResetEnabled = enabled;
+  if (enabled) {
+    Serial.println("✅ 9 ve 10 nolu kanal servoları OTONOM RESET'te AKTİF");
+  } else {
+    Serial.println("❌ 9 ve 10 nolu kanal servoları OTONOM RESET'ten ÇIKARILDI");
+  }
+}
 
 // ==================== OTONOM MOD FONKSİYONLARI ====================
 
@@ -605,7 +619,7 @@ float readUltrasonicDistance(int trigPin, int echoPin) {
   return constrain(distanceCM, 0, MAX_DISTANCE);
 }
 
-// ==================== RESET FONKSİYONLARI ====================
+// ==================== DEĞİŞTİRİLMİŞ RESET FONKSİYONLARI ====================
 void resetAllServos() {
   Serial.println("\n🔄 TÜM SİSTEM RESETLENİYOR...");
   setAutonomousMode(false); // Otonom modu kapat
@@ -619,17 +633,25 @@ void resetAllServos() {
 void resetOnlyServos() {
   Serial.println("🔧 Servolar resetleniyor...");
   
-  // ÖNEMLİ: Baş_Servo'yu 145°'ye resetle
-  setPcaServoAngleByChannel(10, 145);  // Baş_Servo - MERKEZ: 145°
-  delay(200); // Daha uzun bekleme
+  // 9 ve 10 nolu kanal servoları reset fonksiyonunda aktifse resetle, değilse atla
+  if (headNeckResetEnabled) {
+    // Kanal 9: Bacak_Servo_2
+    setPcaServoAngleByChannel(9, 90);    // Bacak_Servo_2
+    delay(50);
+    // Kanal 10: Baş_Servo
+    setPcaServoAngleByChannel(10, 145);  // Baş_Servo - MERKEZ: 145°
+    delay(200); // Daha uzun bekleme
+    Serial.println("✅ 9 ve 10 nolu kanal servoları resetlendi");
+  } else {
+    Serial.println("⏭️ 9 ve 10 nolu kanal servoları reset atlandı (A modu aktif)");
+  }
   
+  // Diğer servolar her zaman resetlensin
   setPcaServoAngleByChannel(8, 100);   // Kol_Servo_2
   delay(50);
   setPcaServoAngleByChannel(4, 72);    // Kol_Servo_1
   delay(50);
   setPcaServoAngleByChannel(6, 126);   // Bacak_Servo_1
-  delay(50);
-  setPcaServoAngleByChannel(9, 90);    // Bacak_Servo_2
   delay(50);
   setPcaServoAngleByChannel(13, 92);   // Kuyruk_Servo
   delay(50);
@@ -637,18 +659,27 @@ void resetOnlyServos() {
   delay(50);
   setPcaServoAngleByChannel(12, 50);   // Ağız_Servo
   
-  // availableServos dizisini GÜNCELLE - Baş_Servo: 145°
-  availableServos[0].targetAngle = 100;
-  availableServos[1].targetAngle = 72;
-  availableServos[2].targetAngle = 126;
-  availableServos[3].targetAngle = 90;
-  availableServos[4].targetAngle = 160;  // 145° MERKEZ
-  availableServos[5].targetAngle = 92;
-  availableServos[6].targetAngle = 133;
-  availableServos[7].targetAngle = 50;
+  // availableServos dizisini GÜNCELLE
+  availableServos[0].targetAngle = 100;  // Kanal 8
+  availableServos[1].targetAngle = 72;   // Kanal 4
+  availableServos[2].targetAngle = 126;  // Kanal 6
+  
+  // 9 ve 10 nolu kanalları sadece reset aktifse güncelle
+  if (headNeckResetEnabled) {
+    availableServos[3].targetAngle = 90;   // Kanal 9 - Bacak_Servo_2
+    availableServos[4].targetAngle = 160;  // Kanal 10 - Baş_Servo (145° MERKEZ)
+  }
+  
+  availableServos[5].targetAngle = 92;   // Kanal 13
+  availableServos[6].targetAngle = 133;  // Kanal 11
+  availableServos[7].targetAngle = 50;   // Kanal 12
   
   Serial.println("✅ Servolar resetlendi");
-  Serial.println("📊 Baş_Servo: 145° (MERKEZ)");
+  if (headNeckResetEnabled) {
+    Serial.println("📊 Kanal 9 (Bacak_Servo_2): 90°, Kanal 10 (Baş_Servo): 145°");
+  } else {
+    Serial.println("📊 9 ve 10 nolu kanal servoları: Reset atlandı (A modu)");
+  }
 }
 
 // ==================== OTOMATİK RESET KONTROLÜ ====================
@@ -696,8 +727,18 @@ void processFlexibleCommand(const char* command) {
     
     Serial.printf("🔍 Komut parçası: %s\n", cmdStr.c_str());
     
+    // A/B KOMUTLARI - 9 ve 10 nolu kanal servoları reset kontrolü
+    if (cmdStr == "a" || cmdStr == "A") {
+      setHeadNeckReset(false);
+      commandProcessed = true;
+    }
+    else if (cmdStr == "b" || cmdStr == "B") {
+      setHeadNeckReset(true);
+      commandProcessed = true;
+    }
+    
     // OTONOM MOD komutları
-    if (cmdStr == "otonom" || cmdStr == "autonomous" || cmdStr == "auto") {
+    else if (cmdStr == "otonom" || cmdStr == "autonomous" || cmdStr == "auto") {
       setAutonomousMode(true);
       commandProcessed = true;
     }
@@ -1058,13 +1099,14 @@ void sendWebPage(WiFiClient &client) {
   client.println("• Motor: Basılı tutun → motor çalışır, bırakın → motor durur<br>");
   client.println("• Sensörler: 7 ultrasonik sensör ile mesafe ölçümü<br>");
   client.println("• Labirent Modu: Servo taraması ile yön bulma<br>");
-  client.println("• Reset: Tüm sistem veya sadece servoları sıfırlar");
+  client.println("• Reset: Tüm sistem veya sadece servoları sıfırlar<br>");
+  client.println("• A/B Komutları: 9-10 nolu kanal servoları reset kontrolü");
   client.println("</div>");
 
   client.println("</body></html>");
 }
 
-// ==================== DİĞER FONKSİYONLAR ====================
+// ==================== GÜNCELLENMİŞ HELP FONKSİYONU ====================
 void printHelp() {
   Serial.println("\n🎯 SERİ KONTROL SİSTEMİ - OTONOM MOD DESTEKLİ");
   Serial.println("Web arayüzünde butonlara basılı tutunca servo hareket eder!");
@@ -1075,6 +1117,10 @@ void printHelp() {
   Serial.println("  manuel/manual    - Manuel moda geç");
   Serial.println("  sensor/mesafe    - Sensör verilerini göster");
   
+  Serial.println("🔧 9-10 KANAL RESET KONTROLÜ:");
+  Serial.println("  A                - 9 ve 10 nolu kanal servoları OTONOM RESET'ten ÇIKAR");
+  Serial.println("  B                - 9 ve 10 nolu kanal servoları OTONOM RESET'te AKTİF");
+  
   Serial.println("📡 WEB KONTROL:");
   Serial.println("  Otonom mod: Web arayüzünden aç/kapat");
   Serial.println("  Gerçek zamanlı sensör verileri");
@@ -1084,11 +1130,17 @@ void printHelp() {
   Serial.println("  3 saniye seri port aktivitesi olmazsa otomatik reset");
   Serial.println("  80 cm'de duvar algılama, 50 cm'de acil dur");
   Serial.println("  Labirent modu: Servo ile tarama yaparak yön bulma");
+  
+  // Mevcut 9-10 kanal reset durumunu göster
+  Serial.printf("📊 Mevcut Durum: 9-10 Kanal Reset %s\n", 
+                headNeckResetEnabled ? "AKTİF" : "PASİF");
 }
 
+// ==================== GÜNCELLENMİŞ DURUM FONKSİYONU ====================
 void printServoStatus() {
   Serial.printf("📊 Yerel Servo: %d° (Home: %d°)\n", localServoAngle, LOCAL_SERVO_HOME_ANGLE);
   Serial.printf("📡 Otonom Mod: %s\n", autonomousMode ? "AKTİF" : "PASİF");
+  Serial.printf("🔧 9-10 Kanal Reset: %s\n", headNeckResetEnabled ? "AKTİF" : "PASİF");
 
   updateAllSensors();
   Serial.println("📊 Sensör Mesafeleri:");
@@ -1159,6 +1211,7 @@ void setup() {
   Serial.println("🚀 Otonom mod: 'otonom' komutu ile başlat (Labirent modu aktif)");
   Serial.println("🔧 Manuel mod: 'manuel' komutu ile geç");
   Serial.println("📊 Sensörler: 'sensor' komutu ile görüntüle (7 sensör)");
+  Serial.println("🔧 9-10 Kanal Reset: 'A' komutu ile çıkar, 'B' komutu ile aktif et");
   Serial.println("⏰ 3 saniye seri port aktivitesi olmazsa otomatik reset\n");
 }
 
